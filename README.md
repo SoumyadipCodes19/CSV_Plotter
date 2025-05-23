@@ -1,4 +1,4 @@
-# ScientiFlow-Frontend
+# CSV Plotter
 
 A React project styled with Tailwind CSS.
 
