@@ -4,7 +4,6 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, ScatterChart, Scatter, PieChart, Pie, Cell
 } from "recharts";
-import html2canvas from "html2canvas";
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#8dd1e1'];
 
@@ -14,27 +13,44 @@ function App() {
   const [chartType, setChartType] = useState("line");
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [darkMode, setDarkMode] = useState(false);
+  const [zoomDomain, setZoomDomain] = useState({ start: 0, end: 10 });
 
-  // Toggle dark mode class on <html>
   useEffect(() => {
     const html = document.documentElement;
-    if (darkMode) {
-      html.classList.add("dark");
-    } else {
-      html.classList.remove("dark");
-    }
+    darkMode ? html.classList.add("dark") : html.classList.remove("dark");
   }, [darkMode]);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
+    if (!file) return;
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      dynamicTyping: true,
       complete: (results) => {
-        setData(results.data);
-        setHeaders(Object.keys(results.data[0]));
-        setSelectedColumns([Object.keys(results.data[0])[1]]); // default select second column
+        // Trim all string values in every row & every column
+        const cleanedData = results.data.map(row => {
+          const trimmedRow = {};
+          Object.entries(row).forEach(([key, val]) => {
+            trimmedRow[key] = typeof val === "string" ? val.trim() : val;
+          });
+          return trimmedRow;
+        });
+        setData(cleanedData);
+
+        if (results.data.length > 0) {
+          const cols = Object.keys(results.data[0]);
+          setHeaders(cols);
+
+          // Select the second column by default if exists, else empty
+          setSelectedColumns(cols.length > 1 ? [cols[1]] : []);
+
+          setZoomDomain({ start: 0, end: cleanedData.length - 1 });
+        }
       },
+      error: (err) => {
+        console.error("Error parsing CSV:", err);
+      }
     });
   };
 
@@ -46,131 +62,433 @@ function App() {
     );
   };
 
-  // Multiple Y axes, auto color
-  const renderYAxes = () => selectedColumns.map((col, i) => (
-    <YAxis
+  // Zoom In: Shrink range by removing 1/4th from both ends
+  const handleZoomIn = () => {
+    setZoomDomain(prev => {
+      const range = prev.end - prev.start;
+      if (range <= 2) return prev; // Prevent zooming in too far
+      const increment = Math.ceil(range / 4);
+      const newStart = prev.start + increment;
+      const newEnd = prev.end - increment;
+      if (newStart >= newEnd) return prev; // Prevent invalid range
+      return {
+        start: newStart,
+        end: newEnd,
+      };
+    });
+  };
+
+  // Zoom Out: Expand range by adding half of current range to ends
+  const handleZoomOut = () => {
+    setZoomDomain(prev => {
+      const range = prev.end - prev.start;
+      const increment = Math.ceil(range / 2);
+      const newStart = Math.max(0, prev.start - increment);
+      const newEnd = Math.min(data.length - 1, prev.end + increment);
+      return {
+        start: newStart,
+        end: newEnd,
+      };
+    });
+  };
+
+  const handleResetZoom = () => {
+    setZoomDomain({ start: 0, end: data.length - 1 });
+  };
+
+  // Calculate data ranges for better Y-axis scaling
+  const getDataRange = (data, column) => {
+    const values = data.map(d => Number(d[column])).filter(v => !isNaN(v));
+    if (values.length === 0) return [0, 100];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const padding = (max - min) * 0.1;
+    return [min - padding, max + padding];
+  };
+
+  // Render Y axes for all selected columns, with better scaling
+  const renderYAxes = (chartData) => selectedColumns.map((col, i) => {
+    const [min, max] = getDataRange(chartData, col);
+    return (
+      <YAxis
+        key={col}
+        yAxisId={col}
+        orientation={i % 2 === 0 ? 'left' : 'right'}
+        stroke={COLORS[i % COLORS.length]}
+        domain={[min, max]}
+        allowDataOverflow={false}
+        tickFormatter={(value) => formatValue(value)}
+      />
+    );
+  });
+
+  const renderLines = () => selectedColumns.map((col, i) => (
+    <Line
       key={col}
       yAxisId={col}
-      orientation={i % 2 === 0 ? 'left' : 'right'}
+      type="monotone"
+      dataKey={col}
       stroke={COLORS[i % COLORS.length]}
+      strokeWidth={2}
+      dot={false}
+      isAnimationActive={false}
+      connectNulls={false}
     />
   ));
 
-  const renderLines = () => selectedColumns.map((col, i) => (
-    <Line key={col} yAxisId={col} type="monotone" dataKey={col} stroke={COLORS[i % COLORS.length]} />
-  ));
-
   const renderBars = () => selectedColumns.map((col, i) => (
-    <Bar key={col} yAxisId={col} dataKey={col} fill={COLORS[i % COLORS.length]} />
+    <Bar
+      key={col}
+      yAxisId={col}
+      dataKey={col}
+      fill={COLORS[i % COLORS.length]}
+      isAnimationActive={false}
+    />
   ));
 
   const renderAreas = () => selectedColumns.map((col, i) => (
-    <Area key={col} yAxisId={col} dataKey={col} fill={COLORS[i % COLORS.length]} stroke={COLORS[i % COLORS.length]} />
+    <Area
+      key={col}
+      yAxisId={col}
+      dataKey={col}
+      fill={COLORS[i % COLORS.length]}
+      stroke={COLORS[i % COLORS.length]}
+      fillOpacity={0.6}
+      isAnimationActive={false}
+      connectNulls={false}
+    />
   ));
 
   const renderScatters = () => selectedColumns.map((col, i) => (
-    <Scatter key={col} yAxisId={col} dataKey={col} fill={COLORS[i % COLORS.length]} />
+    <Scatter
+      key={col}
+      yAxisId={col}
+      dataKey={col}
+      fill={COLORS[i % COLORS.length]}
+      isAnimationActive={false}
+    />
   ));
 
-  const renderChart = () => {
+  // Analyze the X-axis column to determine data pattern and create descriptive name
+  const analyzeXAxisColumn = () => {
+    if (!data.length || !headers.length) return headers[0] || "X-Axis";
+    
+    const columnName = headers[0];
+    const values = data.map(row => row[columnName]).filter(val => val != null);
+    
+    if (values.length === 0) return columnName;
+    
+    // Check if values are dates
+    const dateValues = values.filter(val => val instanceof Date || !isNaN(Date.parse(val)));
+    if (dateValues.length > values.length * 0.8) {
+      return `${columnName} (Timeline)`;
+    }
+    
+    // Check if values are numeric
+    const numericValues = values.filter(val => !isNaN(Number(val)));
+    if (numericValues.length > values.length * 0.8) {
+      const nums = numericValues.map(val => Number(val));
+      const min = Math.min(...nums);
+      const max = Math.max(...nums);
+      const range = max - min;
+      
+      if (range === 0) {
+        return `${columnName} (Constant: ${min})`;
+      } else if (nums.length > 1) {
+        // Check if it's a sequence (like years, months, etc.)
+        const sorted = [...nums].sort((a, b) => a - b);
+        const differences = [];
+        for (let i = 1; i < sorted.length; i++) {
+          differences.push(sorted[i] - sorted[i-1]);
+        }
+        const avgDiff = differences.reduce((sum, diff) => sum + diff, 0) / differences.length;
+        
+        if (avgDiff > 0 && avgDiff < 1) {
+          return `${columnName} (Range: ${min.toFixed(2)} - ${max.toFixed(2)})`;
+        } else if (Number.isInteger(avgDiff) && avgDiff > 0) {
+          return `${columnName} (Sequence: +${Math.round(avgDiff)})`;
+        } else {
+          return `${columnName} (Range: ${min} - ${max})`;
+        }
+      }
+    }
+    
+    // Check if values are categorical (strings with repetition)
+    const uniqueValues = [...new Set(values)];
+    if (uniqueValues.length < values.length * 0.5 && uniqueValues.length > 1) {
+      return `${columnName} (${uniqueValues.length} Categories)`;
+    }
+    
+    // Default case - just show the column name with data type hint
+    const sampleValue = values[0];
+    if (typeof sampleValue === 'string') {
+      return `${columnName} (Text)`;
+    }
+    
+    return columnName;
+  };
+
+  // Custom tick formatter for X-axis to handle long labels and dates
+  const formatXAxisTick = (value) => {
+    if (!value) return "—";
+    
+    // Handle Date objects or date strings
+    let dateObj = null;
+    if (value instanceof Date) {
+      dateObj = value;
+    } else if (typeof value === 'string' && !isNaN(Date.parse(value))) {
+      dateObj = new Date(value);
+    }
+    
+    if (dateObj && !isNaN(dateObj.getTime())) {
+      // Check if the date has time information (not just midnight)
+      const hasTime = dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0 || dateObj.getSeconds() !== 0;
+      
+      if (hasTime) {
+        // Show date and time
+        return dateObj.toLocaleString('en-US', { 
+          month: 'short', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+      } else {
+        // Show just date
+        return dateObj.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric',
+          year: '2-digit'
+        });
+      }
+    }
+    
+    // Handle strings
+    if (typeof value === 'string' && value.length > 12) {
+      return value.substring(0, 10) + '...';
+    }
+    
+    return String(value);
+  };
+
+  // Format values for display, handling different data types
+  const formatValue = (value) => {
+    if (!value && value !== 0) return "—";
+    
+    // Handle Date objects or date strings
+    let dateObj = null;
+    if (value instanceof Date) {
+      dateObj = value;
+    } else if (typeof value === 'string' && !isNaN(Date.parse(value))) {
+      dateObj = new Date(value);
+    }
+    
+    if (dateObj && !isNaN(dateObj.getTime())) {
+      // Check if the date has time information
+      const hasTime = dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0 || dateObj.getSeconds() !== 0;
+      
+      if (hasTime) {
+        return dateObj.toLocaleString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+      } else {
+        return dateObj.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      }
+    }
+    
+    if (typeof value === 'number') {
+      return value.toFixed(2);
+    }
+    return String(value);
+  };
+
+  // Render the chart, supporting normal (zoomed) and full modes
+  const renderChart = (mode = "normal") => {
+    if (!data.length || selectedColumns.length === 0 || headers.length === 0) {
+      return <p className="text-center text-gray-500">Please upload CSV and select columns.</p>;
+    }
+
+    // Slice data based on zoom or show full data
+    const chartData = mode === "full" ? data : data.slice(zoomDomain.start, zoomDomain.end + 1);
+    
+    // Get the descriptive X-axis name
+    const xAxisName = analyzeXAxisColumn();
+
+    const xAxisProps = {
+      dataKey: headers[0],
+      tickFormatter: formatXAxisTick,
+      allowDuplicatedCategory: false,
+      interval: 0, // Force show all ticks for small datasets
+      angle: -45,
+      textAnchor: "end",
+      height: 100,
+      tick: { fontSize: 11 },
+      minTickGap: 1,
+      label: { value: xAxisName, position: 'insideBottom', offset: -10, textAnchor: 'middle' }
+    };
+
+    const chartMargin = { top: 20, right: 60, left: 60, bottom: 100 };
+
     switch(chartType) {
       case "line":
         return (
-          <LineChart data={data}>
-            <CartesianGrid stroke="#ccc" />
-            <XAxis
-              dataKey={headers[0]}
-              tickFormatter={value => value || "—"}
-              allowDuplicatedCategory={false}
+          <LineChart data={chartData} margin={chartMargin}>
+            <CartesianGrid stroke="#ccc" strokeDasharray="5 5" />
+            <XAxis {...xAxisProps} />
+            {renderYAxes(chartData)}
+            <Tooltip 
+              labelFormatter={(value) => `${xAxisName}: ${formatValue(value)}`}
+              formatter={(value, name) => [formatValue(value), name]}
             />
-            {renderYAxes()}
-            <Tooltip />
             <Legend />
             {renderLines()}
           </LineChart>
         );
+
       case "bar":
         return (
-          <BarChart data={data}>
-            <CartesianGrid stroke="#ccc" />
-            <XAxis
-              dataKey={headers[0]}
-              tickFormatter={value => value || "—"}
-              allowDuplicatedCategory={false}
+          <BarChart data={chartData} margin={chartMargin}>
+            <CartesianGrid stroke="#ccc" strokeDasharray="5 5" />
+            <XAxis {...xAxisProps} />
+            {renderYAxes(chartData)}
+            <Tooltip 
+              labelFormatter={(value) => `${xAxisName}: ${formatValue(value)}`}
+              formatter={(value, name) => [formatValue(value), name]}
             />
-            {renderYAxes()}
-            <Tooltip />
             <Legend />
             {renderBars()}
           </BarChart>
         );
+
       case "area":
         return (
-          <AreaChart data={data}>
-            <CartesianGrid stroke="#ccc" />
-            <XAxis
-              dataKey={headers[0]}
-              tickFormatter={value => value || "—"}
-              allowDuplicatedCategory={false}
+          <AreaChart data={chartData} margin={chartMargin}>
+            <CartesianGrid stroke="#ccc" strokeDasharray="5 5" />
+            <XAxis {...xAxisProps} />
+            {renderYAxes(chartData)}
+            <Tooltip 
+              labelFormatter={(value) => `${xAxisName}: ${formatValue(value)}`}
+              formatter={(value, name) => [formatValue(value), name]}
             />
-            {renderYAxes()}
-            <Tooltip />
             <Legend />
             {renderAreas()}
           </AreaChart>
         );
+
       case "scatter":
         return (
-          <ScatterChart>
-            <CartesianGrid stroke="#ccc" />
-            <XAxis
-              dataKey={headers[0]}
-              tickFormatter={value => value || "—"}
-              allowDuplicatedCategory={false}
+          <ScatterChart data={chartData} margin={chartMargin}>
+            <CartesianGrid stroke="#ccc" strokeDasharray="5 5" />
+            <XAxis 
+              {...xAxisProps}
+              type="category"
             />
-            {renderYAxes()}
-            <Tooltip />
+            {renderYAxes(chartData)}
+            <Tooltip 
+              cursor={{ strokeDasharray: '3 3' }}
+              labelFormatter={(value) => `${xAxisName}: ${formatValue(value)}`}
+              formatter={(value, name) => [formatValue(value), name]}
+            />
             <Legend />
             {renderScatters()}
           </ScatterChart>
         );
+
       case "pie":
-        const pieData = selectedColumns.map((col, i) => ({
-          name: col,
-          value: Number(data[0][col]) || 0,
-          color: COLORS[i % COLORS.length],
-        }));
+        // For pie chart, aggregate data across all rows for selected columns
+        const pieData = selectedColumns.map((col, i) => {
+          const sum = chartData.reduce((acc, row) => {
+            const value = Number(row[col]);
+            return acc + (isNaN(value) ? 0 : value);
+          }, 0);
+          return {
+            name: col,
+            value: sum,
+            color: COLORS[i % COLORS.length],
+          };
+        }).filter(d => d.value > 0);
+
+        // Show warning if no meaningful data
+        if (pieData.length === 0 || pieData.every(d => d.value === 0)) {
+          return <p className="text-center text-gray-500">Selected columns contain no numeric data for Pie Chart.</p>;
+        }
+
         return (
-          <PieChart>
+          <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
             <Pie
               data={pieData}
               dataKey="value"
               nameKey="name"
               cx="50%"
               cy="50%"
-              outerRadius={80}
+              outerRadius={100}
               fill="#8884d8"
-              label
+              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
             >
               {pieData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Pie>
-            <Tooltip />
+            <Tooltip formatter={(value) => [formatValue(value), 'Value']} />
             <Legend />
           </PieChart>
         );
-      default: return null;
+
+      default:
+        return null;
     }
   };
 
+  // Export functionality with html2canvas alternative
+  const exportChart = (isFullChart = false) => {
+    const chartElement = document.getElementById(isFullChart ? "full-chart" : "chart");
+    if (!chartElement) return;
+    
+    // Simple fallback - create a data URL from SVG if possible
+    const svgElement = chartElement.querySelector('svg');
+    if (svgElement) {
+      const svgData = new XMLSerializer().serializeToString(svgElement);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      canvas.width = svgElement.clientWidth || 800;
+      canvas.height = svgElement.clientHeight || 600;
+      
+      img.onload = function() {
+        ctx.drawImage(img, 0, 0);
+        const link = document.createElement('a');
+        link.download = isFullChart ? 'full_chart.png' : 'chart.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      };
+      
+      img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+    }
+  };
+
+  // Disable zoom buttons if zoom limits reached or no data
+  const canZoomIn = zoomDomain.end - zoomDomain.start > 2;
+  const canZoomOut = !(zoomDomain.start === 0 && zoomDomain.end === data.length - 1);
+
   return (
-    <div className="p-4 max-w-4xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-500">
+    <div className="p-4 max-w-6xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-500">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-3xl font-bold">CSV Plotter</h1>
         <button
           onClick={() => setDarkMode(!darkMode)}
-          className="px-4 py-2 rounded bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+          className="px-4 py-2 rounded bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors"
+          aria-label="Toggle dark mode"
         >
           {darkMode ? "Light Mode" : "Dark Mode"}
         </button>
@@ -180,41 +498,115 @@ function App() {
         type="file"
         accept=".csv"
         onChange={handleFileUpload}
-        className="mb-6 p-2 border rounded dark:bg-gray-800 dark:border-gray-600"
+        className="mb-6 p-2 border rounded dark:bg-gray-800 dark:border-gray-600 w-full max-w-md"
+        aria-label="Upload CSV file"
       />
 
       {data.length > 0 && (
         <>
-          <select
-            value={chartType}
-            onChange={handleChartTypeChange}
-            className="mb-4 p-2 border rounded dark:bg-gray-800 dark:border-gray-600"
-          >
-            <option value="line">Line Chart</option>
-            <option value="bar">Bar Chart</option>
-            <option value="area">Area Chart</option>
-            <option value="scatter">Scatter Chart</option>
-            <option value="pie">Pie Chart</option>
-          </select>
+          <div className="mb-4 flex flex-wrap gap-4 items-center">
+            <select
+              value={chartType}
+              onChange={handleChartTypeChange}
+              className="p-2 border rounded dark:bg-gray-800 dark:border-gray-600"
+              aria-label="Select chart type"
+            >
+              <option value="line">Line Chart</option>
+              <option value="bar">Bar Chart</option>
+              <option value="area">Area Chart</option>
+              <option value="scatter">Scatter Chart</option>
+              <option value="pie">Pie Chart</option>
+            </select>
 
-          <div className="mb-4">
-            <p className="mb-1 font-semibold">Select Columns to Plot:</p>
-            {headers.slice(1).map((col) => (
-              <label key={col} className="mr-4">
-                <input
-                  type="checkbox"
-                  checked={selectedColumns.includes(col)}
-                  onChange={() => handleColumnToggle(col)}
-                  className="mr-1"
-                />
-                {col}
-              </label>
-            ))}
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              Showing {zoomDomain.end - zoomDomain.start + 1} of {data.length} data points
+            </div>
           </div>
 
-          <div id="chart" className="bg-white dark:bg-gray-800 p-4 rounded shadow">
-            <ResponsiveContainer width="100%" height={400}>
-              {renderChart()}
+          <div className="mb-4">
+            <p className="mb-2 font-semibold">Select Columns to Plot:</p>
+            <div className="flex flex-wrap gap-2">
+              {headers.slice(1).map((col) => (
+                <label key={col} className="flex items-center gap-1 px-3 py-1 border rounded cursor-pointer select-none hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedColumns.includes(col)}
+                    onChange={() => handleColumnToggle(col)}
+                    className="mr-1"
+                  />
+                  <span className="text-sm">{col}</span>
+                </label>
+              ))}
+            </div>
+            {selectedColumns.length === 0 && (
+              <p className="text-sm text-red-600 mt-2">Please select at least one column to plot.</p>
+            )}
+          </div>
+
+          {chartType !== 'pie' && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                onClick={handleZoomIn}
+                disabled={!canZoomIn}
+                className={`px-3 py-2 rounded text-white transition-colors ${canZoomIn ? "bg-blue-500 hover:bg-blue-600" : "bg-gray-400 cursor-not-allowed"}`}
+                aria-label="Zoom in"
+              >
+                Zoom In
+              </button>
+              <button
+                onClick={handleZoomOut}
+                disabled={!canZoomOut}
+                className={`px-3 py-2 rounded text-white transition-colors ${canZoomOut ? "bg-blue-500 hover:bg-blue-600" : "bg-gray-400 cursor-not-allowed"}`}
+                aria-label="Zoom out"
+              >
+                Zoom Out
+              </button>
+              <button
+                onClick={handleResetZoom}
+                className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+                aria-label="Reset zoom"
+              >
+                Reset Zoom
+              </button>
+            </div>
+          )}
+
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => exportChart(false)}
+              className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 transition-colors"
+              aria-label="Export current view as PNG"
+            >
+              Export View as PNG
+            </button>
+
+            <button
+              onClick={() => exportChart(true)}
+              className="px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+              aria-label="Export full chart as PNG"
+            >
+              Export Full Chart as PNG
+            </button>
+          </div>
+
+          <div
+            id="chart"
+            className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg overflow-hidden"
+          >
+            <div style={{ width: "100%", height: "600px" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                {renderChart()}
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Hidden chart for full export */}
+          <div
+            id="full-chart"
+            style={{ position: "absolute", top: "-9999px", left: "-9999px", width: 1200, height: 800 }}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              {renderChart("full")}
             </ResponsiveContainer>
           </div>
         </>
