@@ -14,6 +14,7 @@ function App() {
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [darkMode, setDarkMode] = useState(false);
   const [zoomDomain, setZoomDomain] = useState({ start: 0, end: 10 });
+  const [xAxisStrategy, setXAxisStrategy] = useState("auto"); // auto, sparse, sample, none
 
   useEffect(() => {
     const html = document.documentElement;
@@ -104,6 +105,38 @@ function App() {
     const max = Math.max(...values);
     const padding = (max - min) * 0.1;
     return [min - padding, max + padding];
+  };
+
+  // Smart interval calculation for X-axis ticks
+  const calculateTickInterval = (dataLength, chartWidth = 800) => {
+    const maxTicks = Math.floor(chartWidth / 100); // Assume each tick needs ~100px for readability
+    
+    if (dataLength <= maxTicks) {
+      return 0; // Show all ticks
+    }
+    
+    // Calculate interval to show approximately maxTicks
+    const interval = Math.ceil(dataLength / maxTicks);
+    return interval - 1; // Recharts uses 0-based interval
+  };
+
+  // Sample data for better performance with large datasets
+  const sampleData = (data, maxPoints = 1000) => {
+    if (data.length <= maxPoints) return data;
+    
+    const step = Math.ceil(data.length / maxPoints);
+    const sampled = [];
+    
+    for (let i = 0; i < data.length; i += step) {
+      sampled.push(data[i]);
+    }
+    
+    // Always include the last point
+    if (sampled[sampled.length - 1] !== data[data.length - 1]) {
+      sampled.push(data[data.length - 1]);
+    }
+    
+    return sampled;
   };
 
   // Render Y axes for all selected columns, with better scaling
@@ -264,8 +297,8 @@ function App() {
     }
     
     // Handle strings
-    if (typeof value === 'string' && value.length > 12) {
-      return value.substring(0, 10) + '...';
+    if (typeof value === 'string' && value.length > 8) {
+      return value.substring(0, 6) + '...';
     }
     
     return String(value);
@@ -319,25 +352,59 @@ function App() {
     }
 
     // Slice data based on zoom or show full data
-    const chartData = mode === "full" ? data : data.slice(zoomDomain.start, zoomDomain.end + 1);
+    let chartData = mode === "full" ? data : data.slice(zoomDomain.start, zoomDomain.end + 1);
+    
+    // For large datasets, apply sampling if needed
+    if (mode === "full" && chartData.length > 2000) {
+      switch (xAxisStrategy) {
+        case "sample":
+          chartData = sampleData(chartData, 1000);
+          break;
+        // For other strategies, we'll handle in X-axis configuration
+      }
+    }
     
     // Get the descriptive X-axis name
     const xAxisName = analyzeXAxisColumn();
 
+    // Calculate appropriate tick interval based on strategy and data size
+    let tickInterval = 0;
+    let showTicks = true;
+    
+    switch (xAxisStrategy) {
+      case "auto":
+        tickInterval = calculateTickInterval(chartData.length);
+        break;
+      case "sparse":
+        tickInterval = Math.max(Math.ceil(chartData.length / 10), 0);
+        break;
+      case "none":
+        showTicks = false;
+        break;
+      case "sample":
+        tickInterval = 0; // Show all ticks since data is already sampled
+        break;
+    }
+
     const xAxisProps = {
       dataKey: headers[0],
-      tickFormatter: formatXAxisTick,
+      tickFormatter: showTicks ? formatXAxisTick : () => "",
       allowDuplicatedCategory: false,
-      interval: 0, // Force show all ticks for small datasets
-      angle: -45,
-      textAnchor: "end",
-      height: 100,
-      tick: { fontSize: 11 },
+      interval: tickInterval,
+      angle: showTicks ? -45 : 0,
+      textAnchor: showTicks ? "end" : "middle",
+      height: showTicks ? 100 : 60,
+      tick: showTicks ? { fontSize: 10 } : false,
       minTickGap: 1,
-      label: { value: xAxisName, position: 'insideBottom', offset: -10, textAnchor: 'middle' }
+      label: { 
+        value: xAxisName, 
+        position: 'insideBottom', 
+        offset: showTicks ? 10 : -20, 
+        textAnchor: 'middle' 
+      }
     };
 
-    const chartMargin = { top: 20, right: 60, left: 60, bottom: 100 };
+    const chartMargin = { top: 20, right: 60, left: 60, bottom: showTicks ? 120 : 80 };
 
     switch(chartType) {
       case "line":
@@ -481,6 +548,10 @@ function App() {
   const canZoomIn = zoomDomain.end - zoomDomain.start > 2;
   const canZoomOut = !(zoomDomain.start === 0 && zoomDomain.end === data.length - 1);
 
+  // Get current data size info
+  const currentDataSize = zoomDomain.end - zoomDomain.start + 1;
+  const isLargeDataset = data.length > 1000;
+
   return (
     <div className="p-4 max-w-6xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-500">
       <div className="flex justify-between items-center mb-4">
@@ -518,8 +589,25 @@ function App() {
               <option value="pie">Pie Chart</option>
             </select>
 
+            <select
+              value={xAxisStrategy}
+              onChange={(e) => setXAxisStrategy(e.target.value)}
+              className="p-2 border rounded dark:bg-gray-800 dark:border-gray-600"
+              aria-label="Select X-axis display strategy"
+            >
+              <option value="auto">Auto Spacing</option>
+              <option value="sparse">Sparse Labels</option>
+              <option value="sample">Sample Data</option>
+              <option value="none">No Labels</option>
+            </select>
+
             <div className="text-sm text-gray-600 dark:text-gray-400">
-              Showing {zoomDomain.end - zoomDomain.start + 1} of {data.length} data points
+              Showing {currentDataSize} of {data.length} data points
+              {isLargeDataset && (
+                <span className="block text-xs text-orange-600 dark:text-orange-400">
+                  Large dataset detected - X-axis strategy helps readability
+                </span>
+              )}
             </div>
           </div>
 
