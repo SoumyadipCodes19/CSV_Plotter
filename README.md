@@ -1,4 +1,4 @@
-# ScientiFlow-Frontend
+# CSV Plotter
 
 A React project styled with Tailwind CSS.
 
@@ -9,8 +9,8 @@ Follow these steps to clone and run the project locally.
 ### Clone the repository
 
 ```
-git clone https://github.com/SoumyadipCodes19/ScientiFlow-Frontend.git
-cd ScientiFlow-Frontend
+git clone https://github.com/SoumyadipCodes19/CSV_Plotter.git
+cd CSV_Plotter
 ````
 
 ### Install dependencies
