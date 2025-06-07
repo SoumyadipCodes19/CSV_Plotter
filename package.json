@@ -1,14 +1,18 @@
 {
-  "name": "react-tailwind-starter",
+  "name": "csv-plotter",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^13.5.0",
     "html2canvas": "^1.4.1",
     "papaparse": "^5.5.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
-    "recharts": "^2.15.3"
+    "recharts": "^2.15.3",
+    "web-vitals": "^2.1.4"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.14",
@@ -20,6 +24,12 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
   },
   "browserslist": {
     "production": [
