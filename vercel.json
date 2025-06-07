@@ -1,6 +1,6 @@
 {
   "version": 2,
   "framework": "create-react-app",
-  "buildCommand": "CI=false npm run build",
+  "buildCommand": "chmod +x node_modules/.bin/react-scripts && CI=false npx --yes react-scripts build",
   "outputDirectory": "build"
 } 
