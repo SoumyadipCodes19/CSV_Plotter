@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "buildCommand": "npm install -g react-scripts && CI=false npm run build",
+  "installCommand": "npm install",
+  "framework": "create-react-app"
+} 
